@@ -1,0 +1,63 @@
+--- a/filesystem/ext4/superblock.go
++++ b/filesystem/ext4/superblock.go
+@@ -389,7 +389,12 @@
+ 	sb.logGroupsPerFlex = uint64(math.Exp2(float64(b[0x174])))
+ 
+ 	sb.checksumType = b[0x175] // only valid one is 1
+-	if sb.checksumType != checkSumTypeCRC32c {
++	// PATCH(bbsdcardsniffer): s_checksum_type is only meaningful when the
++	// metadata_csum feature is enabled. Filesystems written by an older
++	// mkfs.ext4 leave it at 0, which is correct, and the value is never
++	// consulted again while reading. Rejecting them here made every such
++	// card unreadable.
++	if sb.features.metadataChecksums && sb.checksumType != checkSumTypeCRC32c {
+ 		return nil, fmt.Errorf("cannot read superblock: invalid checksum type %d, only valid is %d", sb.checksumType, checkSumTypeCRC32c)
+ 	}
+ 
+--- a/filesystem/ext4/groupdescriptors.go
++++ b/filesystem/ext4/groupdescriptors.go
+@@ -195,7 +195,14 @@
+ 	}
+ 
+ 	// only bother with checking the checksum if it was not type none (pre-checksums)
+-	if checksumType != gdtChecksumNone {
++	// PATCH(bbsdcardsniffer): the gdtChecksumGdt (CRC16) branch of
++	// groupDescriptorChecksum is wrong on three counts — it uses a
++	// CCITT-style CRC-16 where ext4 uses the reflected IBM one, seeds it with
++	// a truncated checksum seed instead of a CRC over the volume UUID, and
++	// checksums the descriptor including its own checksum field. Every
++	// descriptor of a gdt_csum filesystem therefore mismatches. Verify only
++	// the crc32c variant, which is implemented correctly.
++	if checksumType == gdtChecksumMetadata {
+ 		checksum := binary.LittleEndian.Uint16(b[0x1e:0x20])
+ 		actualChecksum := groupDescriptorChecksum(checksumInput, hashSeed, gdNumber, checksumType)
+ 		if checksum != actualChecksum {
+--- a/filesystem/ext4/inode.go
++++ b/filesystem/ext4/inode.go
+@@ -389,7 +389,11 @@
+ 	checksum := binary.LittleEndian.Uint32(checksumBytes)
+ 	actualChecksum := inodeChecksum(b, sb.checksumSeed, number, i.nfsFileVersion)
+ 
+-	if actualChecksum != checksum {
++	// PATCH(bbsdcardsniffer): inode checksums exist only with metadata_csum.
++	// Without that feature the on-disk field is 0, so this check rejected
++	// every inode. Every neighbouring checksum in this package is gated on
++	// the feature; this one was missed.
++	if sb.features.metadataChecksums && actualChecksum != checksum {
+ 		return nil, fmt.Errorf("checksum mismatch, on-disk %x vs calculated %x", checksum, actualChecksum)
+ 	}
+ 
+--- a/filesystem/ext4/directoryentry.go
++++ b/filesystem/ext4/directoryentry.go
+@@ -184,7 +184,10 @@
+ }
+ 
+ func (de *directoryEntryInfo) Info() (iofs.FileInfo, error) {
+-	mode := de.Type()
++	// PATCH(bbsdcardsniffer): Type() returns only the type bits, so every
++	// entry came back as d--------- / ---------- with its permissions
++	// discarded. The inode is embedded right here and already parses them.
++	mode := de.inode.permissionsToMode()
+ 	return &FileInfo{
+ 		modTime: de.modifyTime,
+ 		name:    de.filename,
