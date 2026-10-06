@@ -6,6 +6,12 @@ React-frontend.
 
 De applicatie opent de kaart altijd read-only en schrijft er nooit naartoe.
 
+**Inhoud:** [Downloaden](#downloaden) · [Installeren](#installeren) ·
+[Gebruiken](#gebruiken) · [Klonen en schrijven](#klonen-en-schrijven) ·
+[Assistent](#assistent) · [Talen](#talen-i18n) · [Zelf bouwen](#zelf-bouwen) ·
+[Een release maken](#een-release-maken) · [Ontwikkelen](#ontwikkelen) ·
+[Opbouw](#opbouw)
+
 ## Wat het kan lezen
 
 | Filesystem | Bladeren | Opmerking |
@@ -22,19 +28,105 @@ De applicatie opent de kaart altijd read-only en schrijft er nooit naartoe.
 Partitietabellen: GPT en MBR. Een kaart zonder partitietabel wordt als één
 volume behandeld.
 
-## Gebruiken
+## Downloaden
 
-Ruwe schijftoegang vereist verhoogde rechten:
+Kant-en-klare builds staan op de
+**[Releases-pagina](https://github.com/lenstrats/bbsdcardsniffer/releases/latest)**:
+
+| Platform | Bestand | |
+|---|---|---|
+| macOS 10.13+ (Apple Silicon én Intel) | `bbsdcardsniffer-<versie>-macos-universal.dmg` | schijfkopie, slepen naar Programma's |
+| Windows 10/11 (64-bit) | `bbsdcardsniffer-<versie>-windows-amd64-setup.exe` | installer met Start-menu-snelkoppeling |
+| Windows 10/11 (64-bit) | `bbsdcardsniffer-<versie>-windows-amd64.exe` | losse exe, zonder installatie |
+
+Linux heeft (nog) geen kant-en-klare build; zie [Zelf bouwen](#zelf-bouwen).
+
+## Installeren
+
+### macOS
+
+1. Open de `.dmg` en sleep **bbsdcardsniffer** naar **Programma's**.
+2. De app is niet ondertekend met een Apple Developer-certificaat, dus de eerste
+   keer weigert macOS hem te openen ("Apple kan niet controleren of deze app
+   vrij is van malware"). Twee manieren om dat eenmalig toe te staan:
+   - Probeer de app te openen, ga dan naar **Systeeminstellingen → Privacy en
+     beveiliging**, scroll naar beneden en klik **Toch openen**; of
+   - in Terminal:
+     ```sh
+     xattr -dr com.apple.quarantine /Applications/bbsdcardsniffer.app
+     ```
+3. Disk-images openen werkt nu met een dubbelklik. Voor het lezen van een
+   **echte SD-kaart** zijn rootrechten nodig — zie hieronder.
+
+Starten met rootrechten (nodig voor `/dev/rdiskN`):
 
 ```sh
-sudo ./build/bin/bbsdcardsniffer.app/Contents/MacOS/bbsdcardsniffer
+sudo /Applications/bbsdcardsniffer.app/Contents/MacOS/bbsdcardsniffer
 ```
 
-Optioneel meteen een apparaat of image openen:
+Zonder `sudo` toont de app de kaarten wel, maar weigert het openen met
+*"geen toestemming om /dev/rdisk4 te lezen"*.
+
+### Windows
+
+1. Start `…-setup.exe`. Omdat de installer niet code-ondertekend is, toont
+   Windows SmartScreen *"Windows heeft uw pc beschermd"*: klik **Meer info →
+   Toch uitvoeren**.
+2. Volg de installer. Er komt een snelkoppeling in het Start-menu en op het
+   bureaublad.
+3. De app vraagt bij elke start om **Administrator**-rechten (UAC). Dat is
+   nodig voor ruwe toegang tot `\\.\PhysicalDriveN`; zonder die rechten zijn
+   kaarten niet te lezen.
+
+De losse `.exe` werkt hetzelfde, alleen zonder installatie en snelkoppelingen.
+WebView2 zit in de build ingebakken, dus er hoeft niets extra's geïnstalleerd
+te worden.
+
+Verwijderen gaat via **Instellingen → Apps**.
+
+> Het schrijfpad (image → kaart) is op Windows nog niet getest; zie
+> [Klonen en schrijven](#klonen-en-schrijven). Lezen en klonen naar een image
+> zijn niet-destructief en kunnen veilig worden uitgeprobeerd.
+
+### Claude API-sleutel (optioneel)
+
+Alleen de [Assistent](#assistent) heeft een sleutel nodig; bladeren, klonen en
+schrijven werken zonder. Maak er een aan op
+[console.anthropic.com](https://console.anthropic.com/settings/keys) en vul hem
+in de app in, of zet hem in je omgeving:
 
 ```sh
-sudo ./build/bin/bbsdcardsniffer.app/Contents/MacOS/bbsdcardsniffer /dev/disk4
-./build/bin/bbsdcardsniffer.app/Contents/MacOS/bbsdcardsniffer ~/dumps/card.img
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Een in de app ingevulde sleutel wordt lokaal bewaard, nooit in de app zelf of
+in deze repository:
+
+| OS | Locatie |
+|---|---|
+| macOS | `~/Library/Application Support/bbsdcardsniffer/config.json` |
+| Windows | `%AppData%\bbsdcardsniffer\config.json` |
+| Linux | `~/.config/bbsdcardsniffer/config.json` |
+
+De omgevingsvariabele heeft voorrang op het bestand. Gebruik van de assistent
+wordt afgerekend op jouw Anthropic-account.
+
+## Gebruiken
+
+Ruwe schijftoegang vereist verhoogde rechten (zie [Installeren](#installeren)).
+Optioneel meteen een apparaat of image openen door het als argument mee te
+geven:
+
+```sh
+# macOS
+sudo /Applications/bbsdcardsniffer.app/Contents/MacOS/bbsdcardsniffer /dev/disk4
+/Applications/bbsdcardsniffer.app/Contents/MacOS/bbsdcardsniffer ~/dumps/card.img
+
+# Windows (vanuit een prompt als Administrator)
+"C:\Program Files\Bas Lentfert\SD Card Sniffer\bbsdcardsniffer.exe" \\.\PhysicalDrive2
+
+# Linux
+sudo ./build/bin/bbsdcardsniffer /dev/sdb
 ```
 
 Een image-bestand (bijvoorbeeld een `dd`-dump) heeft geen root nodig en is ook
@@ -256,6 +348,56 @@ en gelezen kon worden:
 REAL_IMAGE=~/card.img go test -v -run TestRealImage ./internal/volume/
 ```
 
+## Zelf bouwen
+
+Benodigd:
+
+- [Go](https://go.dev/dl/) 1.25 of nieuwer
+- [Node.js](https://nodejs.org/) 20 of nieuwer
+- [Wails](https://wails.io/docs/gettingstarted/installation) v2.15:
+  `go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0`
+- Platformspecifiek: op macOS de Xcode command line tools
+  (`xcode-select --install`); op Linux `libgtk-3-dev` en `libwebkit2gtk-4.0-dev`
+  (of `-4.1` met `-tags webkit2_41`); op Windows niets extra's, behalve
+  [NSIS](https://nsis.sourceforge.io/) als je de installer wilt bouwen.
+
+`wails doctor` controleert of alles aanwezig is.
+
+```sh
+git clone https://github.com/lenstrats/bbsdcardsniffer.git
+cd bbsdcardsniffer
+wails build                              # → build/bin/
+wails build -platform darwin/universal   # macOS: Intel + Apple Silicon in één app
+wails build -nsis -webview2 embed        # Windows: exe + installer
+```
+
+Dependencies zitten in `vendor/` (met patches, zie
+[Gepatchte go-diskfs](#gepatchte-go-diskfs)), dus de Go-build heeft geen
+internet nodig; `npm install` voor de frontend wel.
+
+## Een release maken
+
+Releases worden gebouwd door GitHub Actions
+([.github/workflows/release.yml](.github/workflows/release.yml)). Een tag
+pushen is genoeg:
+
+```sh
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+De workflow draait de tests, bouwt de macOS-`.dmg` (universal) op een macOS
+runner en de Windows-exe plus NSIS-installer op een Windows runner, en zet ze
+op een nieuwe release met automatisch gegenereerde release notes. Het
+versienummer uit de tag komt in `Info.plist` en de exe-metadata terecht.
+
+Handmatig starten via **Actions → release → Run workflow** bouwt alleen de
+artefacten (te downloaden bij de run), zonder release.
+
+De builds zijn niet ondertekend. Voor ondertekening zijn een Apple Developer ID
+(plus notarisatie) en een Windows code-signing-certificaat nodig; daarmee
+verdwijnen de Gatekeeper- en SmartScreen-waarschuwingen.
+
 ## Opbouw
 
 | Pad | Rol |
@@ -279,3 +421,10 @@ read-modify-write van de omliggende sectoren, met invalidatie van de blokcache.
 De aligned-read-laag in `internal/blockdev` is niet optioneel: `/dev/rdiskN` op
 macOS en `\\.\PhysicalDriveN` op Windows weigeren reads die niet op een sector
 uitgelijnd zijn, terwijl de filesystem-drivers op willekeurige offsets lezen.
+
+## Componenten van derden
+
+De licenties van alle meegeleverde Go- en npm-dependencies staan in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); opnieuw genereren met
+`./scripts/notices.sh`. Het Nunito-lettertype valt onder de
+[SIL Open Font License](frontend/src/assets/fonts/OFL.txt).

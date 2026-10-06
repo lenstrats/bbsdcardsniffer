@@ -7,7 +7,13 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "acncourses",
-    "email": "acncourses@lentfert.com"
+    "name": "Bas Lentfert",
+    "email": "bas@lentfert.com"
+  },
+  "info": {
+    "companyName": "Bas Lentfert",
+    "productName": "SD Card Sniffer",
+    "productVersion": "1.0.0",
+    "copyright": "\u00a9 2026 Bas Lentfert"
   }
 }
