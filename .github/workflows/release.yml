@@ -25,14 +25,14 @@ jobs:
             platform: windows/amd64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -48,9 +48,6 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           # Wails reads info.productVersion into Info.plist and the exe metadata
           node -e 'const f="wails.json",j=JSON.parse(require("fs").readFileSync(f));j.info={...j.info,productVersion:process.argv[1]};require("fs").writeFileSync(f,JSON.stringify(j,null,2))' "$v"
-
-      - name: Test
-        run: go test ./...
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
@@ -76,7 +73,11 @@ jobs:
           cp build/bin/bbsdcardsniffer.exe "dist/bbsdcardsniffer-$v-windows-amd64.exe"
           cp build/bin/*installer.exe "dist/bbsdcardsniffer-$v-windows-amd64-setup.exe"
 
-      - uses: actions/upload-artifact@v4
+      # after the build: main.go embeds frontend/dist
+      - name: Test
+        run: go test ./...
+
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ runner.os }}
           path: dist/*
@@ -86,7 +87,7 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           path: dist
           merge-multiple: true
